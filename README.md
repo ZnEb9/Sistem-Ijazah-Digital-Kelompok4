@@ -1,4 +1,4 @@
-# 🎓 Sistem Penerbitan dan Verifikasi Ijazah Digital Terdesentralisasi
+# 🎓 Sistem Verifikasi Ijazah Digital Terdesentralisasi
 **Proyek Ujian Tengah Semester (UTS) Mata Kuliah Teknologi Blockchain**  
 **Program Studi Sistem Informasi - Institut Teknologi PLN**
 
