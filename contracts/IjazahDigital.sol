@@ -1,85 +1,123 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-contract IjazahDigital {
+contract SivilBlockchain {
+    address public adminUtama;
+    
+    // Mapping untuk daftar staf (True = Aktif, False = Nonaktif)
+    mapping(address => bool) public isStaf;
 
-    // 1. Variabel State & Access Control
-    address public adminUniversitas;
-
-    // Struktur data untuk menyimpan informasi ijazah
     struct Ijazah {
-        string namaMahasiswa;
-        string nim;
-        string programStudi;
-        string ipfsHash; // Link ke dokumen asli di penyimpanan off-chain
-        uint256 tanggalLulus;
-        bool isValid; // Status untuk mengecek apakah ijazah dicabut
+        string nomorIjazah;
+        string nama;
+        string nik;
+        string prodi;
+        string hashDokumen;
+        uint256 tanggalTerbit;
+        bool isTerdaftar;
     }
 
-    // Mapping untuk mencari ijazah berdasarkan ID/Hash unik
-    mapping(string => Ijazah) private daftarIjazah;
+    // Kunci utama menggunakan bytes32 (Hasil hash gabungan di frontend: PDF+No+Nama+NIK)
+    mapping(bytes32 => Ijazah) private dataIjazah;
+    
+    // Satu dompet bisa memiliki banyak ijazah (SD, SMP, SMA, Kuliah, dll)
+    mapping(address => bytes32[]) private walletKeDaftarIjazah;
 
-    // 2. Event Logging untuk pelacakan di Etherscan
-    event IjazahDiterbitkan(string idIjazah, string namaMahasiswa, string nim);
-    event IjazahDicabut(string idIjazah, string alasan);
+    // Log untuk transparansi blockchain
+    event IjazahDiterbitkan(bytes32 indexed idIjazah, string nomorIjazah, address walletAlumni, uint256 waktu);
+    event StafDitambahkan(address staf);
+    event StafDihapus(address staf);
 
-    // Modifier untuk membatasi akses (Hanya admin universitas yang bisa menambah data)
-    modifier onlyOwner() {
-        require(msg.sender == adminUniversitas, "Akses ditolak: Bukan Admin Universitas");
+    // Modifier Keamanan
+    modifier hanyaAdmin() {
+        require(msg.sender == adminUtama, "Akses ditolak: Hanya Admin Utama!");
         _;
     }
 
-    // Konstruktor dijalankan saat contract di-deploy
+    modifier hanyaStafAtauAdmin() {
+        require(msg.sender == adminUtama || isStaf[msg.sender], "Akses ditolak: Anda bukan staf atau admin!");
+        _;
+    }
+
+    // Constructor berjalan sekali saat deploy
     constructor() {
-        adminUniversitas = msg.sender; // Set akun yang men-deploy sebagai admin
+        adminUtama = msg.sender;
     }
 
-    // ==========================================
-    // 3. FUNGSI INTI (Masih berupa Skeleton)
-    // ==========================================
-
-    /**
-     * @dev Fungsi Pencatatan (Write) - Menambahkan data ijazah baru ke blockchain
-     * Akses: Hanya Admin Universitas (onlyOwner)
-     */
-    function addCertificate(
-        string memory _idIjazah,
-        string memory _nama,
-        string memory _nim,
-        string memory _prodi,
-        string memory _ipfsHash
-    ) public onlyOwner {
-        // TODO: Tambahkan logika validasi idIjazah agar tidak duplikat
-        // TODO: Simpan data ke dalam mapping daftarIjazah
-        // TODO: Pancarkan event IjazahDiterbitkan
+    // MANAJEMEN STAF (Hanya Admin Utama)
+    function tambahStaf(address _staf) public hanyaAdmin {
+        require(!isStaf[_staf], "Alamat dompet ini sudah menjadi staf!");
+        isStaf[_staf] = true;
+        emit StafDitambahkan(_staf);
     }
 
-    /**
-     * @dev Fungsi Verifikasi (Read) - Mengambil data ijazah untuk divalidasi publik
-     * Akses: Publik (Siapa saja bisa mengecek)
-     */
-    function verifyCertificate(string memory _idIjazah) 
-        public 
-        view 
-        returns (
-            string memory nama, 
-            string memory nim, 
-            string memory prodi, 
-            string memory ipfsHash, 
-            bool isValid
-        ) 
-    {
-        // TODO: Ambil data dari mapping berdasarkan _idIjazah
-        // TODO: Kembalikan nilai-nilai tersebut ke pemanggil fungsi
+    function hapusStaf(address _staf) public hanyaAdmin {
+        require(isStaf[_staf], "Alamat dompet ini bukan staf!");
+        isStaf[_staf] = false;
+        emit StafDihapus(_staf);
     }
 
-    /**
-     * @dev Fungsi Update - Mencabut status keabsahan ijazah (misal: jika ada pelanggaran)
-     * Akses: Hanya Admin Universitas (onlyOwner)
-     */
-    function revokeCertificate(string memory _idIjazah, string memory _alasan) public onlyOwner {
-        // TODO: Pastikan ijazah ada di dalam sistem
-        // TODO: Ubah status isValid menjadi false
-        // TODO: Pancarkan event IjazahDicabut
+    // PENERBITAN IJAZAH (Oleh Admin & Staf)
+    function terbitkanIjazah(
+        bytes32 _idIjazah, 
+        string memory _nomorIjazah, 
+        string memory _nama, 
+        string memory _nik, 
+        string memory _prodi, 
+        string memory _hashDokumen, 
+        address _walletAlumni
+    ) public hanyaStafAtauAdmin {
+        // Validasi input penting tidak boleh kosong
+        require(bytes(_nomorIjazah).length > 0, "Nomor Ijazah kosong!");
+        require(bytes(_hashDokumen).length > 0, "Hash Dokumen kosong!");
+        require(_walletAlumni != address(0), "Wallet tidak valid!");
+        
+        // Pastikan Ijazah ini belum pernah diterbitkan
+        require(!dataIjazah[_idIjazah].isTerdaftar, "Ijazah dengan kombinasi data ini sudah ada di Blockchain!");
+        
+        // Simpan data permanen ke Blockchain
+        dataIjazah[_idIjazah] = Ijazah(
+            _nomorIjazah, 
+            _nama, 
+            _nik, 
+            _prodi, 
+            _hashDokumen, 
+            block.timestamp, 
+            true
+        );
+        
+        // Hubungkan ijazah ke dompet alumni
+        walletKeDaftarIjazah[_walletAlumni].push(_idIjazah);
+
+        emit IjazahDiterbitkan(_idIjazah, _nomorIjazah, _walletAlumni, block.timestamp);
+    }
+
+    // VERIFIKASI (Untuk Verifikator Publik - Gratis)
+    function verifikasiPublik(bytes32 _idIjazah) public view returns (
+        string memory nomorIjazah,
+        string memory nama,
+        string memory nik,
+        string memory prodi,
+        string memory hashDokumen,
+        uint256 tanggalTerbit,
+        bool statusValid
+    ) {
+        require(dataIjazah[_idIjazah].isTerdaftar, "Ijazah tidak ditemukan atau palsu!");
+        
+        Ijazah memory ijazah = dataIjazah[_idIjazah];
+        return (
+            ijazah.nomorIjazah, 
+            ijazah.nama, 
+            ijazah.nik, 
+            ijazah.prodi, 
+            ijazah.hashDokumen, 
+            ijazah.tanggalTerbit, 
+            ijazah.isTerdaftar
+        );
+    }
+
+    // DASHBOARD ALUMNI (Melihat Koleksi Ijazah)
+    function lihatDaftarIjazahSaya() public view returns (bytes32[] memory) {
+        return walletKeDaftarIjazah[msg.sender];
     }
 }
